@@ -5,8 +5,6 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
 find_package(Vulkan REQUIRED)
-find_package(glfw3 CONFIG REQUIRED)
-find_package(glm CONFIG REQUIRED)
 
 add_subdirectory(SPIRV-Headers)
 add_subdirectory(SPIRV-Tools)
@@ -20,7 +18,7 @@ add_subdirectory(shaderc)
 set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
 
 add_executable(LearnVulkan main.cpp)
-target_link_libraries(LearnVulkan PRIVATE Vulkan::Vulkan glm::glm glfw shaderc)
+target_link_libraries(LearnVulkan PRIVATE Vulkan::Vulkan shaderc)
 target_compile_definitions(LearnVulkan PRIVATE
         GLFW_INCLUDE_VULKAN
         GLM_FORCE_RADIANS

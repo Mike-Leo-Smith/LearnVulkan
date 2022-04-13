@@ -9,7 +9,6 @@
 
 #include <vulkan/vulkan.h>
 #include <shaderc/shaderc.hpp>
-#include <glm/vec4.hpp>
 
 inline std::string vulkan_error_string(VkResult code) noexcept {
     switch (code) {
@@ -41,11 +40,9 @@ inline std::string vulkan_error_string(VkResult code) noexcept {
         case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "ERROR_INVALID_EXTERNAL_HANDLE";
         case VK_ERROR_FRAGMENTATION: return "ERROR_FRAGMENTATION";
         case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
-        case VK_PIPELINE_COMPILE_REQUIRED: return "PIPELINE_COMPILE_REQUIRED";
         case VK_ERROR_VALIDATION_FAILED_EXT: return "ERROR_VALIDATION_FAILED_EXT";
         case VK_ERROR_INVALID_SHADER_NV: return "ERROR_INVALID_SHADER_NV";
         case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT: return "ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT";
-        case VK_ERROR_NOT_PERMITTED_KHR: return "ERROR_NOT_PERMITTED_KHR";
         case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
         case VK_THREAD_IDLE_KHR: return "THREAD_IDLE_KHR";
         case VK_THREAD_DONE_KHR: return "THREAD_DONE_KHR";
@@ -166,6 +163,10 @@ int main() {
     std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilyProperties.data());
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    auto maxQueueCount = std::max_element(queueFamilyProperties.begin(), queueFamilyProperties.end(),
+                                          [](auto a, auto b) { return a.queueCount < b.queueCount; })
+                             ->queueCount;
+    std::vector<float> queuePriorities(maxQueueCount, 1.f);
     float queuePriority = 1.0f;
     for (auto i = 0u; i < queueFamilyCount; i++) {
         auto q = queueFamilyProperties[i];
@@ -189,7 +190,7 @@ int main() {
             .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
             .queueFamilyIndex = i,
             .queueCount = q.queueCount,
-            .pQueuePriorities = &queuePriority,
+            .pQueuePriorities = queuePriorities.data(),
         });
     }
 
@@ -207,7 +208,7 @@ int main() {
 
     // create buffer
     static constexpr auto bufferSize = 1024u;
-    std::vector<uint> queueFamilyIndices(queueCreateInfos.size());
+    std::vector<uint32_t> queueFamilyIndices(queueCreateInfos.size());
     for (auto i = 0u; i < queueCreateInfos.size(); i++) {
         queueFamilyIndices[i] = queueCreateInfos[i].queueFamilyIndex;
     }
