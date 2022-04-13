@@ -4,6 +4,8 @@
 #include <string_view>
 #include <string>
 #include <span>
+#include <numeric>
+#include <algorithm>
 
 #include <vulkan/vulkan.h>
 #include <shaderc/shaderc.hpp>
@@ -249,6 +251,11 @@ int main() {
     CHECK_VULKAN(vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory));
     CHECK_VULKAN(vkBindBufferMemory(device, buffer, bufferMemory, 0u));
 
+    // upload data
+    float *data = nullptr;
+    CHECK_VULKAN(vkMapMemory(device, bufferMemory, 0u, bufferSize, 0u, reinterpret_cast<void **>(&data)));
+    std::iota(data, data + bufferSize, 0.0f);
+
     // compile shader
     using namespace std::string_view_literals;
     constexpr auto shaderSource = R"(#version 450
@@ -290,7 +297,135 @@ void main() {
     shaderStageCreateInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     shaderStageCreateInfo.pName = "main";
 
+    // create binding descriptor set
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBinding{};
+    descriptorSetLayoutBinding.binding = 0;
+    descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBinding.descriptorCount = 1;
+    descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    descriptorSetLayoutBinding.pImmutableSamplers = nullptr;
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{};
+    descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutCreateInfo.bindingCount = 1;
+    descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+    VkDescriptorSetLayout descriptorSetLayout;
+    CHECK_VULKAN(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, nullptr, &descriptorSetLayout));
+
+    // create compute pipeline layout
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
+    pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
+    pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+    pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+    VkPipelineLayout pipelineLayout;
+    CHECK_VULKAN(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
+
+    // create pipeline cache
+    VkPipelineCacheCreateInfo pipelineCacheCreateInfo{};
+    pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    VkPipelineCache pipelineCache;
+    CHECK_VULKAN(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, nullptr, &pipelineCache));
+
+    // create compute pipeline
+    VkComputePipelineCreateInfo computePipelineCreateInfo{};
+    computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    computePipelineCreateInfo.stage = shaderStageCreateInfo;
+    computePipelineCreateInfo.layout = pipelineLayout;
+    computePipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+    computePipelineCreateInfo.basePipelineIndex = -1;
+    VkPipeline computePipeline;
+    CHECK_VULKAN(vkCreateComputePipelines(device, pipelineCache, 1, &computePipelineCreateInfo, nullptr, &computePipeline));
+
+    // create descriptor pool
+    VkDescriptorPoolSize descriptorPoolSize{};
+    descriptorPoolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorPoolSize.descriptorCount = 1;
+    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{};
+    descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolCreateInfo.maxSets = 1;
+    descriptorPoolCreateInfo.poolSizeCount = 1;
+    descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
+    descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    VkDescriptorPool descriptorPool;
+    CHECK_VULKAN(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
+
+    // create command pool
+    VkCommandPoolCreateInfo commandPoolCreateInfo{};
+    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    commandPoolCreateInfo.queueFamilyIndex = 0u;
+    VkCommandPool commandPool;
+    CHECK_VULKAN(vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool));
+
+    // create descriptor set
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo{};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkDescriptorSet descriptorSet;
+    CHECK_VULKAN(vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &descriptorSet));
+
+    // write descriptor set
+    VkDescriptorBufferInfo descriptorBufferInfo{};
+    descriptorBufferInfo.buffer = buffer;
+    descriptorBufferInfo.offset = 0;
+    descriptorBufferInfo.range = VK_WHOLE_SIZE;
+    VkWriteDescriptorSet writeDescriptorSet{};
+    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSet.dstSet = descriptorSet;
+    writeDescriptorSet.dstBinding = 0;
+    writeDescriptorSet.dstArrayElement = 0;
+    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeDescriptorSet.descriptorCount = 1;
+    writeDescriptorSet.pBufferInfo = &descriptorBufferInfo;
+    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
+
+    // create command buffer
+    VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
+    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandBufferAllocateInfo.commandPool = commandPool;
+    commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandBufferAllocateInfo.commandBufferCount = 1;
+    VkCommandBuffer commandBuffer;
+    CHECK_VULKAN(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &commandBuffer));
+
+    // encode command buffer
+    VkCommandBufferBeginInfo commandBufferBeginInfo{};
+    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    CHECK_VULKAN(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo));
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    static constexpr uint32_t workgroupSize = 256;
+    vkCmdDispatch(commandBuffer, (bufferSize + workgroupSize - 1u) / workgroupSize, 1, 1);
+    CHECK_VULKAN(vkEndCommandBuffer(commandBuffer));
+
+    // submit command
+    VkQueue queue;
+    vkGetDeviceQueue(device, 0u, 0u, &queue);
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    CHECK_VULKAN(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
+    // wait for the queue to finish
+    CHECK_VULKAN(vkQueueWaitIdle(queue));
+    vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSet);
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+
+    // free command buffer
+    for (auto i = 0; i < bufferSize; ++i) { std::cout << data[i] << " "; }
+    std::cout << std::endl;
+    vkUnmapMemory(device, bufferMemory);
+
     // clean up
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    vkDestroyPipeline(device, computePipeline, nullptr);
+    vkDestroyPipelineCache(device, pipelineCache, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
     vkDestroyShaderModule(device, shaderModule, nullptr);
     vkFreeMemory(device, bufferMemory, nullptr);
     vkDestroyBuffer(device, buffer, nullptr);
