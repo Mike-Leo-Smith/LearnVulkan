@@ -17,6 +17,7 @@ set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
 set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
 set(SHADERC_ENABLE_SHARED_CRT ON CACHE BOOL "" FORCE)
 add_subdirectory(shaderc)
+set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
 
 add_executable(LearnVulkan main.cpp)
 target_link_libraries(LearnVulkan PRIVATE Vulkan::Vulkan glm::glm glfw shaderc)

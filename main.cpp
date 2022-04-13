@@ -246,7 +246,8 @@ int main() {
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memoryRequirements.size;
     allocInfo.memoryTypeIndex = findMemoryTypeIndex(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
     VkDeviceMemory bufferMemory;
     CHECK_VULKAN(vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory));
     CHECK_VULKAN(vkBindBufferMemory(device, buffer, bufferMemory, 0u));
@@ -346,7 +347,6 @@ void main() {
     descriptorPoolCreateInfo.maxSets = 1;
     descriptorPoolCreateInfo.poolSizeCount = 1;
     descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
-    descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     VkDescriptorPool descriptorPool;
     CHECK_VULKAN(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
 
@@ -411,7 +411,6 @@ void main() {
 
     // wait for the queue to finish
     CHECK_VULKAN(vkQueueWaitIdle(queue));
-    vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSet);
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 
     // free command buffer
